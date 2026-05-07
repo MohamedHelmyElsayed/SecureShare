@@ -1,0 +1,106 @@
+/* Modern Dark Theme for Secure Chat */
+
+QWidget {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 14px;
+}
+
+QMainWindow {
+    background-color: #181825;
+}
+
+/* Sidebar */
+QListWidget#UserList {
+    background-color: #11111b;
+    border: none;
+    outline: none;
+    padding: 10px;
+    border-right: 1px solid #313244;
+}
+
+QListWidget#UserList::item {
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 5px;
+}
+
+QListWidget#UserList::item:selected {
+    background-color: #313244;
+    color: #89b4fa;
+}
+
+QListWidget#UserList::item:hover {
+    background-color: #1e1e2e;
+}
+
+/* Chat Area */
+QScrollArea {
+    background-color: #181825;
+    border: none;
+}
+
+QLineEdit {
+    background-color: #313244;
+    border: 1px solid #45475a;
+    border-radius: 20px;
+    padding: 10px 20px;
+    color: #cdd6f4;
+}
+
+QLineEdit:focus {
+    border: 1px solid #89b4fa;
+}
+
+QPushButton {
+    background-color: #89b4fa;
+    color: #11111b;
+    border-radius: 10px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+
+QPushButton:hover {
+    background-color: #b4befe;
+}
+
+QPushButton:pressed {
+    background-color: #74c7ec;
+}
+
+QPushButton#IconButton {
+    background-color: transparent;
+    border: none;
+    padding: 5px;
+}
+
+QPushButton#IconButton:hover {
+    background-color: #313244;
+    border-radius: 15px;
+}
+
+/* Message Bubbles (handled via custom widgets, but base styles here) */
+QLabel#MessageText {
+    background-color: #313244;
+    border-radius: 15px;
+    padding: 10px 15px;
+}
+
+QLabel#OwnMessageText {
+    background-color: #89b4fa;
+    color: #11111b;
+    border-radius: 15px;
+    padding: 10px 15px;
+}
+
+/* Titles */
+QLabel#Title {
+    font-size: 24px;
+    font-weight: bold;
+    color: #89b4fa;
+}
+
+QLabel#Subtitle {
+    color: #a6adc8;
+}
