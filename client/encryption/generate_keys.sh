@@ -1,7 +1,7 @@
 #!/bin/bash
 # generate_keys.sh - RSA 4096-bit key pair generation
 
-KEY_DIR="../../keys"
+KEY_DIR="../keys"
 mkdir -p "$KEY_DIR"
 
 if [ -f "$KEY_DIR/private.pem" ]; then

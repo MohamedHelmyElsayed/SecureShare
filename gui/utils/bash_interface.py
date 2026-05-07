@@ -1,17 +1,19 @@
+from PyQt5.QtCore import QObject, pyqtSignal
 import subprocess
 import os
 import threading
 import base64
 
-class BashInterface:
+class BashInterface(QObject):
+    output_received = pyqtSignal(str)
+
     def __init__(self, base_path):
+        super().__init__()
         self.base_path = base_path
         self.client_process = None
         self.output_thread = None
-        self.callback = None
 
-    def start_client(self, callback):
-        self.callback = callback
+    def start_client(self):
         client_sh = os.path.join(self.base_path, "client", "client.sh")
         
         # Start the client.sh as a subprocess
@@ -27,8 +29,9 @@ class BashInterface:
         # Thread to read output from client.sh
         def listen():
             for line in self.client_process.stdout:
-                if self.callback:
-                    self.callback(line.strip())
+                msg = line.strip()
+                if msg:
+                    self.output_received.emit(msg)
 
         self.output_thread = threading.Thread(target=listen, daemon=True)
         self.output_thread.start()

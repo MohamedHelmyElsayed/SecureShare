@@ -25,7 +25,8 @@ class AppController(QObject):
         self.login_win.login_success.connect(self.start_chat)
 
         # Start Bash Client
-        self.bash.start_client(self.handle_bash_output)
+        self.bash.output_received.connect(self.handle_bash_output)
+        self.bash.start_client()
 
         self.stack.show()
 
