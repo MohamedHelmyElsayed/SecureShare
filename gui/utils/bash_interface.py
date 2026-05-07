@@ -27,19 +27,40 @@ class BashInterface(QObject):
         )
 
         # Thread to read output from client.sh
-        def listen():
-            for line in self.client_process.stdout:
-                msg = line.strip()
-                if msg:
-                    self.output_received.emit(msg)
+        def listen_stdout():
+            try:
+                for line in self.client_process.stdout:
+                    msg = line.strip()
+                    if msg:
+                        self.output_received.emit(msg)
+            except Exception as e:
+                print(f"Stdout listener error: {e}")
 
-        self.output_thread = threading.Thread(target=listen, daemon=True)
-        self.output_thread.start()
+        # Thread to read errors from client.sh
+        def listen_stderr():
+            try:
+                for line in self.client_process.stderr:
+                    err = line.strip()
+                    if err:
+                        print(f"[BASH ERROR] {err}")
+                        if "connection refused" in err.lower():
+                            self.output_received.emit("ERR|Connection refused. Is the server running?")
+            except Exception as e:
+                print(f"Stderr listener error: {e}")
+
+        threading.Thread(target=listen_stdout, daemon=True).start()
+        threading.Thread(target=listen_stderr, daemon=True).start()
 
     def send_command(self, cmd):
-        if self.client_process and self.client_process.stdin:
-            self.client_process.stdin.write(cmd + "\n")
-            self.client_process.stdin.flush()
+        if self.client_process and self.client_process.poll() is None:
+            try:
+                self.client_process.stdin.write(cmd + "\n")
+                self.client_process.stdin.flush()
+            except BrokenPipeError:
+                print("Error: Connection to backend lost (Broken Pipe)")
+                self.output_received.emit("ERR|Lost connection to backend server.")
+        else:
+            self.output_received.emit("ERR|Backend process is not running. Please restart.")
 
     def generate_keys(self):
         script = os.path.join(self.base_path, "client", "encryption", "generate_keys.sh")
