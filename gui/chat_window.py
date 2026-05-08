@@ -1,3 +1,4 @@
+# pyrefly: ignore [missing-import]
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
@@ -123,11 +124,18 @@ class ChatWindow(QMainWindow):
             return
 
         # 1. Encrypt message
-        pub_key_path = self.keys_cache[self.current_recipient]
+        pub_key_path = self.keys_cache[self.current_recipient].replace('\\', '/')
         encrypted_data = self.bash.encrypt_message(pub_key_path, msg)
         
-        # 2. Send command
-        self.bash.send_command(f"MSG|{self.username}|{self.current_recipient}|{encrypted_data}")
+        # 2. Send command in chunks to prevent truncation
+        import textwrap
+        import uuid
+        chunks = textwrap.wrap(encrypted_data, 1024)
+        total = len(chunks)
+        msg_id = str(uuid.uuid4())[:8]
+        
+        for i, chunk in enumerate(chunks):
+            self.bash.send_command(f"MSG_CHUNK|{self.username}|{self.current_recipient}|{msg_id}|{i}|{total}|{chunk}")
         
         # 3. Update UI
         self.add_message(msg, self.username, is_own=True)
@@ -149,20 +157,35 @@ class ChatWindow(QMainWindow):
             return
 
         # 1. Encrypt file
-        pub_key_path = self.keys_cache[self.current_recipient]
+        pub_key_path = self.keys_cache[self.current_recipient].replace('\\', '/')
         temp_out = os.path.join(self.bash.base_path, "client", "temp", "file_out.enc")
+        os.makedirs(os.path.dirname(temp_out), exist_ok=True)
         
+        if os.path.exists(temp_out):
+            os.remove(temp_out)
+            
         import subprocess
         import base64
-        script = os.path.join(self.bash.base_path, "client", "encryption", "encrypt.sh")
-        subprocess.run(["bash", script, pub_key_path, file_path, temp_out], 
+        script = os.path.join(self.bash.base_path, "client", "encryption", "encrypt.sh").replace('\\', '/')
+        subprocess.run(["bash", script, pub_key_path, file_path.replace('\\', '/'), temp_out.replace('\\', '/')], 
                        cwd=os.path.join(self.bash.base_path, "client", "encryption"))
         
+        if not os.path.exists(temp_out):
+            QMessageBox.warning(self, "Error", "File encryption failed.")
+            return
+            
         with open(temp_out, "rb") as f:
             encrypted_data = base64.b64encode(f.read()).decode()
             
-        # 2. Send command
-        self.bash.send_command(f"FILE|{self.username}|{self.current_recipient}|{filename}|{encrypted_data}")
+        # 2. Send command in chunks
+        import textwrap
+        import uuid
+        chunks = textwrap.wrap(encrypted_data, 1024)
+        total = len(chunks)
+        msg_id = str(uuid.uuid4())[:8]
+        
+        for i, chunk in enumerate(chunks):
+            self.bash.send_command(f"FILE_CHUNK|{self.username}|{self.current_recipient}|{filename}|{msg_id}|{i}|{total}|{chunk}")
         
         # 3. Update UI
         self.add_message(f"📁 Sent file: {filename}", self.username, is_own=True)
@@ -188,39 +211,75 @@ class ChatWindow(QMainWindow):
                 user = parts[2]
                 key_data = parts[3]
                 key_path = os.path.join(self.bash.base_path, "client", "temp", f"{user}_pub.pem")
+                os.makedirs(os.path.dirname(key_path), exist_ok=True)
                 import base64
                 with open(key_path, "wb") as f:
                     f.write(base64.b64decode(key_data))
                 self.keys_cache[user] = key_path
 
-        elif parts[0] == "MSG":
-            # MSG|sender|receiver|data
+        elif parts[0] == "MSG_CHUNK":
+            # MSG_CHUNK|sender|receiver|msg_id|chunk_idx|total|data
             sender = parts[1]
-            enc_data = parts[3]
-            # Decrypt
-            priv_key_path = os.path.join(self.bash.base_path, "client", "keys", "private.pem")
-            decrypted_msg = self.bash.decrypt_message(priv_key_path, enc_data)
-            self.add_message(decrypted_msg, sender)
+            msg_id = parts[3]
+            idx = int(parts[4])
+            total = int(parts[5])
+            chunk_data = parts[6] if len(parts) > 6 else ""
+            
+            if not hasattr(self, 'msg_chunks'): self.msg_chunks = {}
+            if msg_id not in self.msg_chunks: self.msg_chunks[msg_id] = {}
+            
+            self.msg_chunks[msg_id][idx] = chunk_data
+            
+            if len(self.msg_chunks[msg_id]) == total:
+                enc_data = "".join(self.msg_chunks[msg_id][i] for i in range(total))
+                del self.msg_chunks[msg_id]
+                
+                priv_key_path = os.path.join(self.bash.base_path, "client", "keys", "private.pem").replace('\\', '/')
+                decrypted_msg = self.bash.decrypt_message(priv_key_path, enc_data)
+                self.add_message(decrypted_msg, sender)
 
-        elif parts[0] == "FILE":
-            # FILE|sender|receiver|filename|data
+        elif parts[0] == "FILE_CHUNK":
+            # FILE_CHUNK|sender|receiver|filename|msg_id|chunk_idx|total|data
             sender = parts[1]
             filename = parts[3]
-            enc_data = parts[4]
+            msg_id = parts[4]
+            idx = int(parts[5])
+            total = int(parts[6])
+            chunk_data = parts[7] if len(parts) > 7 else ""
             
-            # Decrypt
-            priv_key_path = os.path.join(self.bash.base_path, "client", "keys", "private.pem")
-            save_path = os.path.join(self.bash.base_path, "client", "downloads", filename)
+            if not hasattr(self, 'file_chunks'): self.file_chunks = {}
+            if msg_id not in self.file_chunks: self.file_chunks[msg_id] = {}
             
-            # Use temp file for decryption
-            temp_in = os.path.join(self.bash.base_path, "client", "temp", "file_in.enc")
-            import base64
-            with open(temp_in, "wb") as f:
-                f.write(base64.b64decode(enc_data))
+            self.file_chunks[msg_id][idx] = chunk_data
+            
+            if len(self.file_chunks[msg_id]) == total:
+                enc_data = "".join(self.file_chunks[msg_id][i] for i in range(total))
+                del self.file_chunks[msg_id]
                 
-            import subprocess
-            script = os.path.join(self.bash.base_path, "client", "encryption", "decrypt.sh")
-            subprocess.run(["bash", script, priv_key_path, temp_in, save_path],
-                           cwd=os.path.join(self.bash.base_path, "client", "encryption"))
-            
-            self.add_message(f"📁 Received file: {filename} (Saved to downloads)", sender)
+                priv_key_path = os.path.join(self.bash.base_path, "client", "keys", "private.pem").replace('\\', '/')
+                save_path = os.path.join(self.bash.base_path, "client", "downloads", filename)
+                temp_in = os.path.join(self.bash.base_path, "client", "temp", "file_in.enc")
+                
+                os.makedirs(os.path.dirname(save_path), exist_ok=True)
+                os.makedirs(os.path.dirname(temp_in), exist_ok=True)
+                
+                if os.path.exists(save_path): os.remove(save_path)
+                    
+                import base64
+                try:
+                    with open(temp_in, "wb") as f:
+                        f.write(base64.b64decode(enc_data))
+                except Exception as e:
+                    self.add_message(f"❌ Base64 decode failed for file {filename}: {e}", sender)
+                    return
+                    
+                import subprocess
+                script = os.path.join(self.bash.base_path, "client", "encryption", "decrypt.sh").replace('\\', '/')
+                res = subprocess.run(["bash", script, priv_key_path, temp_in.replace('\\', '/'), save_path.replace('\\', '/')],
+                               cwd=os.path.join(self.bash.base_path, "client", "encryption"),
+                               capture_output=True, text=True)
+                
+                if res.returncode == 0 and os.path.exists(save_path):
+                    self.add_message(f"📁 Received file: {filename} (Saved to downloads)", sender)
+                else:
+                    self.add_message(f"❌ Decryption failed for file {filename}. Bash Error: {res.stderr}", sender)

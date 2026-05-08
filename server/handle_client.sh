@@ -28,7 +28,7 @@ trap cleanup EXIT
 # Protocol loop
 while read -r line; do
     # Remove trailing carriage return if present (Windows clients)
-    line=$(echo "$line" | tr -d '\r')
+    line="${line%$'\r'}"
     
     IFS='|' read -r CMD SENDER RECEIVER DATA <<< "$line"
     
@@ -38,7 +38,7 @@ while read -r line; do
             if grep -q "^$SENDER|" "$USERS_DB"; then
                 echo "ERR|User already exists"
             else
-                echo "$SENDER|$RECEIVER|$DATA" >> "$USERS_DB"
+                printf "%s|%s|%s\n" "$SENDER" "$RECEIVER" "$DATA" >> "$USERS_DB"
                 echo "OK|Registration successful"
                 log "User $SENDER registered."
             fi
@@ -61,7 +61,7 @@ while read -r line; do
                     (
                         while [ -p "$PIPE_DIR/$SENDER" ]; do
                             if read -r msg < "$PIPE_DIR/$SENDER"; then
-                                echo "$msg"
+                                printf "%s\n" "$msg"
                             fi
                         done
                     ) &
@@ -83,27 +83,17 @@ while read -r line; do
             USER_ENTRY=$(grep "^$SENDER|" "$USERS_DB")
             if [ -n "$USER_ENTRY" ]; then
                 PUB_KEY=$(echo "$USER_ENTRY" | cut -d'|' -f3)
-                echo "SYS|KEY|$SENDER|$PUB_KEY"
+                printf "SYS|KEY|%s|%s\n" "$SENDER" "$PUB_KEY"
             else
                 echo "ERR|User not found"
             fi
             ;;
             
-        "MSG")
-            # MSG|sender|receiver|encrypted_data
+        "MSG"|"FILE"|"MSG_CHUNK"|"FILE_CHUNK")
+            # CMD|sender|receiver|data
             if [ -p "$PIPE_DIR/$RECEIVER" ]; then
-                echo "MSG|$SENDER|$RECEIVER|$DATA" > "$PIPE_DIR/$RECEIVER"
-                log "Message from $SENDER to $RECEIVER"
-            else
-                echo "ERR|User $RECEIVER is offline"
-            fi
-            ;;
-            
-        "FILE")
-            # FILE|sender|receiver|filename|encrypted_data
-            if [ -p "$PIPE_DIR/$RECEIVER" ]; then
-                echo "FILE|$SENDER|$RECEIVER|$DATA" > "$PIPE_DIR/$RECEIVER"
-                log "File from $SENDER to $RECEIVER"
+                printf "%s|%s|%s|%s\n" "$CMD" "$SENDER" "$RECEIVER" "$DATA" > "$PIPE_DIR/$RECEIVER"
+                log "$CMD from $SENDER to $RECEIVER"
             else
                 echo "ERR|User $RECEIVER is offline"
             fi

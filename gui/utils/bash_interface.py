@@ -71,13 +71,22 @@ class BashInterface(QObject):
         temp_in = os.path.join(self.base_path, "client", "temp", "msg_in.txt")
         temp_out = os.path.join(self.base_path, "client", "temp", "msg_out.enc")
         
+        os.makedirs(os.path.dirname(temp_in), exist_ok=True)
+        
+        if os.path.exists(temp_out):
+            os.remove(temp_out)
+            
         with open(temp_in, "w") as f:
             f.write(message)
             
         script = os.path.join(self.base_path, "client", "encryption", "encrypt.sh")
-        subprocess.run(["bash", script, recipient_pub_key_path, temp_in, temp_out], 
-                       cwd=os.path.join(self.base_path, "client", "encryption"))
+        res = subprocess.run(["bash", script, recipient_pub_key_path, temp_in, temp_out], 
+                       cwd=os.path.join(self.base_path, "client", "encryption"),
+                       capture_output=True, text=True)
         
+        if res.returncode != 0:
+            print(f"[Encryption Error] stdout: {res.stdout}\nstderr: {res.stderr}")
+            
         with open(temp_out, "rb") as f:
             encrypted_data = base64.b64encode(f.read()).decode()
             
@@ -87,14 +96,27 @@ class BashInterface(QObject):
         temp_in = os.path.join(self.base_path, "client", "temp", "msg_in.enc")
         temp_out = os.path.join(self.base_path, "client", "temp", "msg_out.txt")
         
-        with open(temp_in, "wb") as f:
-            f.write(base64.b64decode(encrypted_base64))
+        os.makedirs(os.path.dirname(temp_in), exist_ok=True)
+        
+        if os.path.exists(temp_out):
+            os.remove(temp_out)
+            
+        try:
+            with open(temp_in, "wb") as f:
+                f.write(base64.b64decode(encrypted_base64))
+        except Exception as e:
+            print(f"[Base64 Decode Error]: {e}")
+            return f"[Decryption Failed: Base64 Error {e}]"
             
         script = os.path.join(self.base_path, "client", "encryption", "decrypt.sh")
-        subprocess.run(["bash", script, private_key_path, temp_in, temp_out],
-                       cwd=os.path.join(self.base_path, "client", "encryption"))
+        res = subprocess.run(["bash", script, private_key_path, temp_in, temp_out],
+                       cwd=os.path.join(self.base_path, "client", "encryption"),
+                       capture_output=True, text=True)
+                       
+        if res.returncode != 0:
+            print(f"[Decryption Bash Error] stdout: {res.stdout}\nstderr: {res.stderr}")
         
         if os.path.exists(temp_out):
             with open(temp_out, "r") as f:
                 return f.read()
-        return "[Decryption Failed]"
+        return f"[Decryption Failed: temp_out not found. Bash Output: {res.stdout} {res.stderr}]"
