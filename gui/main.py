@@ -38,8 +38,15 @@ class AppController(QObject):
 
     def start_chat(self, username):
         self.chat_win = ChatWindow(self.bash, username)
+        self.chat_win.logout_requested.connect(self.handle_logout)
         self.stack.addWidget(self.chat_win)
         self.stack.setCurrentWidget(self.chat_win)
+
+    def handle_logout(self):
+        self.stack.setCurrentWidget(self.login_win)
+        self.stack.removeWidget(self.chat_win)
+        self.chat_win.deleteLater()
+        self.chat_win = None
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

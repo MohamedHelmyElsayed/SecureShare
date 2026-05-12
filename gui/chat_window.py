@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 from PyQt5.QtGui import *
 import os
+import json
 
 class MessageBubble(QWidget):
     def __init__(self, text, sender, is_own=False):
@@ -33,13 +34,18 @@ class MessageBubble(QWidget):
         self.setLayout(layout)
 
 class ChatWindow(QMainWindow):
+    logout_requested = pyqtSignal()
+
     def __init__(self, bash, username):
         super().__init__()
         self.bash = bash
         self.username = username
         self.current_recipient = None
         self.keys_cache = {} # username -> pub_key_path
+        self.chat_history = []
+        self.history_file = os.path.join(self.bash.base_path, "client", "history", f"{self.username}_history.json")
         self.init_ui()
+        self.load_history()
 
     def init_ui(self):
         self.setWindowTitle(f"Secure Chat - {self.username}")
@@ -53,11 +59,23 @@ class ChatWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
 
         # Sidebar
+        sidebar_widget = QWidget()
+        sidebar_widget.setFixedWidth(250)
+        sidebar_layout = QVBoxLayout(sidebar_widget)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+
         self.sidebar = QListWidget()
         self.sidebar.setObjectName("UserList")
-        self.sidebar.setFixedWidth(250)
         self.sidebar.itemClicked.connect(self.select_user)
-        main_layout.addWidget(self.sidebar)
+        sidebar_layout.addWidget(self.sidebar)
+
+        self.logout_btn = QPushButton("Logout")
+        self.logout_btn.setStyleSheet("padding: 10px; background-color: #f38ba8; color: #1e1e2e; font-weight: bold;")
+        self.logout_btn.clicked.connect(self.logout)
+        sidebar_layout.addWidget(self.logout_btn)
+
+        main_layout.addWidget(sidebar_widget)
 
         # Chat Area
         chat_container = QWidget()
@@ -106,6 +124,29 @@ class ChatWindow(QMainWindow):
 
     def refresh_users(self):
         self.bash.send_command("GET_USERS")
+
+    def logout(self):
+        self.save_history()
+        self.timer.stop()
+        self.logout_requested.emit()
+
+    def load_history(self):
+        if os.path.exists(self.history_file):
+            try:
+                with open(self.history_file, 'r', encoding='utf-8') as f:
+                    self.chat_history = json.load(f)
+                    for msg in self.chat_history:
+                        self.add_message_ui(msg["text"], msg["sender"], msg["is_own"])
+            except Exception as e:
+                print(f"Failed to load history: {e}")
+
+    def save_history(self):
+        os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
+        try:
+            with open(self.history_file, 'w', encoding='utf-8') as f:
+                json.dump(self.chat_history, f, indent=4)
+        except Exception as e:
+            print(f"Failed to save history: {e}")
 
     def select_user(self, item):
         self.current_recipient = item.text()
@@ -191,6 +232,11 @@ class ChatWindow(QMainWindow):
         self.add_message(f"📁 Sent file: {filename}", self.username, is_own=True)
 
     def add_message(self, text, sender, is_own=False):
+        self.chat_history.append({"text": text, "sender": sender, "is_own": is_own})
+        self.save_history()
+        self.add_message_ui(text, sender, is_own)
+
+    def add_message_ui(self, text, sender, is_own=False):
         bubble = MessageBubble(text, sender, is_own)
         # Add before the stretch
         self.message_layout.insertWidget(self.message_layout.count() - 1, bubble)
