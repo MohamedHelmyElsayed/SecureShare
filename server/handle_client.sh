@@ -30,11 +30,25 @@ while read -r line; do
     # Remove trailing carriage return if present (Windows clients)
     line="${line%$'\r'}"
     
+    # Ignore empty lines
+    [ -z "$line" ] && continue
+
     IFS='|' read -r CMD SENDER RECEIVER DATA <<< "$line"
     
     case "$CMD" in
         "REG")
             # REG|username|password_hash|pub_key
+            if [ -z "$SENDER" ] || [ -z "$RECEIVER" ] || [ -z "$DATA" ]; then
+                echo "ERR|Missing registration data"
+                continue
+            fi
+            
+            # Prevent illegal characters in username
+            if [[ "$SENDER" =~ [^a-zA-Z0-9_-] ]]; then
+                echo "ERR|Invalid characters in username"
+                continue
+            fi
+
             if grep -q "^$SENDER|" "$USERS_DB"; then
                 echo "ERR|User already exists"
             else
@@ -46,6 +60,17 @@ while read -r line; do
             
         "LOGIN")
             # LOGIN|username|password_hash
+            if [ -z "$SENDER" ] || [ -z "$RECEIVER" ]; then
+                echo "ERR|Missing login credentials"
+                continue
+            fi
+            
+            # Check if user is already online
+            if grep -qx "$SENDER" "$ONLINE_USERS"; then
+                echo "ERR|User already logged in"
+                continue
+            fi
+
             USER_ENTRY=$(grep "^$SENDER|" "$USERS_DB")
             if [ -n "$USER_ENTRY" ]; then
                 STORED_HASH=$(echo "$USER_ENTRY" | cut -d'|' -f2)
@@ -53,7 +78,7 @@ while read -r line; do
                     CURRENT_USER="$SENDER"
                     echo "$SENDER" >> "$ONLINE_USERS"
                     # Create a pipe for this user to receive messages
-                    mkfifo "$PIPE_DIR/$SENDER"
+                    mkfifo "$PIPE_DIR/$SENDER" 2>/dev/null
                     echo "OK|Login successful"
                     log "User $SENDER logged in."
                     
@@ -73,13 +98,18 @@ while read -r line; do
             fi
             ;;
             
-        "GET_USERS")
-            USERS=$(paste -sd "," "$ONLINE_USERS")
+        "GET_USERS"|"LIST")
+            USERS=$(paste -sd "," "$ONLINE_USERS" 2>/dev/null)
+            [ -z "$USERS" ] && USERS="None"
             echo "SYS|ONLINE_USERS|$USERS"
             ;;
             
         "GET_KEY")
             # GET_KEY|target_user
+            if [ -z "$SENDER" ]; then
+                echo "ERR|Target user required"
+                continue
+            fi
             USER_ENTRY=$(grep "^$SENDER|" "$USERS_DB")
             if [ -n "$USER_ENTRY" ]; then
                 PUB_KEY=$(echo "$USER_ENTRY" | cut -d'|' -f3)
@@ -91,6 +121,11 @@ while read -r line; do
             
         "MSG"|"FILE"|"MSG_CHUNK"|"FILE_CHUNK")
             # CMD|sender|receiver|data
+            if [ -z "$RECEIVER" ] || [ -z "$DATA" ]; then
+                echo "ERR|Missing recipient or data"
+                continue
+            fi
+            
             if [ -p "$PIPE_DIR/$RECEIVER" ]; then
                 printf "%s|%s|%s|%s\n" "$CMD" "$SENDER" "$RECEIVER" "$DATA" > "$PIPE_DIR/$RECEIVER"
                 log "$CMD from $SENDER to $RECEIVER"
@@ -99,12 +134,16 @@ while read -r line; do
             fi
             ;;
             
+        "HELP")
+            echo "SYS|HELP|Available commands: REG, LOGIN, GET_USERS, GET_KEY, MSG, FILE, EXIT"
+            ;;
+
         "EXIT")
             cleanup
             ;;
             
         *)
-            echo "ERR|Unknown command"
+            echo "ERR|Unknown command: $CMD"
             ;;
     esac
 done
